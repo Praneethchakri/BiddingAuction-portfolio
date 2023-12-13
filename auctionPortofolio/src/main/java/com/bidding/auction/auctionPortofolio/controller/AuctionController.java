@@ -1,15 +1,16 @@
 package com.bidding.auction.auctionPortofolio.controller;
 
+import java.nio.file.attribute.UserPrincipal;
 import java.util.List;
 
 import javax.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.bidding.auction.auctionPortofolio.JwtTokenUtil;
 import com.bidding.auction.auctionPortofolio.model.AuctionProduct;
+import com.bidding.auction.auctionPortofolio.model.AuctionResponse;
 import com.bidding.auction.auctionPortofolio.model.Bid;
 import com.bidding.auction.auctionPortofolio.service.AuctionServer;
 
@@ -39,18 +41,14 @@ public class AuctionController {
 	private AuthenticationManager authenticationManager;
 
 	@PostMapping("/registerProduct")
-	public void registerProduct(HttpServletRequest request, @RequestBody ProductRegistrationRequest productRequest) {
+	public ResponseEntity<?> registerProduct(HttpServletRequest request, @RequestBody ProductRegistrationRequest productRequest) {
 		
 		// Extract the token from the Authorization header
-//		String token = extractTokenFromRequest(request);
 		// Validate the token
-//		if (jwtTokenUtil.validateToken(token, productRequest.getSellerUsername())) {
 			// Use the token as needed
 			auctionServer.registerProduct(jwtTokenUtil.extractUsername(extractTokenFromRequest(request)), productRequest.getProductName(),
 					productRequest.getMinBid());
-//		} else {
-//			throw new RuntimeException("Invalid token");
-//		}
+			 return ResponseEntity.ok(new AuctionResponse(true, "Product registered successfully!", HttpStatus.OK.value()));
 	}
 
 	private String extractTokenFromRequest(HttpServletRequest request) {
@@ -92,7 +90,9 @@ public class AuctionController {
 	}
 
 	@GetMapping("/endAuction/{productId}")
-	public void endAuction(@PathVariable String productId) {
+	public void endAuction(@PathVariable String productId,Authentication authentication) {
+//		Get the authenticated user
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
 		auctionServer.endAuction(productId);
 	}
 
