@@ -2,6 +2,10 @@ package com.bidding.auction.auctionPortofolio.controller;
 
 import java.util.List;
 
+import javax.validation.Valid;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Size;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -19,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.bidding.auction.auctionPortofolio.JwtTokenUtil;
 import com.bidding.auction.auctionPortofolio.dao.UserRepository;
 import com.bidding.auction.auctionPortofolio.exceptions.UserRegistrationException;
+import com.bidding.auction.auctionPortofolio.model.AuctionResponse;
 import com.bidding.auction.auctionPortofolio.model.JwtTokenAsResponse;
 import com.bidding.auction.auctionPortofolio.model.User;
 import com.bidding.auction.auctionPortofolio.service.CustomUserDetailsService;
@@ -43,51 +48,64 @@ public class UserController {
 		this.passwordEncoder = passwordEncoder;
 	}
 
-	@PostMapping(value="/register",produces = MediaType.APPLICATION_JSON_VALUE)
-	public ResponseEntity<?> registerUser(@RequestBody UserRegistrationRequest request) {
+	@PostMapping(value = "/register", produces = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<?> registerUser(@Valid @RequestBody UserRegistrationRequest request) {
 
 		if (usernameAlreadyExists(request.getUsername())) {
-			return ResponseEntity.ok(new UserRegistrationException("Username already exists").getMessage());
-		}else {
-		try {
-			User user = new User();
-			user.setUsername(request.getUsername());
-			user.setPassword(passwordEncoder.encode(request.getPassword()));
-			user.setRole(request.getRole());
+			return ResponseEntity.status(HttpStatus.ALREADY_REPORTED)
+					.body(new AuctionResponse(false, "Username already exists", HttpStatus.ALREADY_REPORTED.value()));
+		} else {
+			try {
+				User user = new User();
+				user.setUsername(request.getUsername());
+				user.setPassword(passwordEncoder.encode(request.getPassword()));
+				user.setRole(request.getRole());
 
-			userRepository.save(user);
-			System.out.println("User Registeration is successful.. " + user.getUsername());
-			return ResponseEntity.ok("User registered successfully!");
-		} catch (UserRegistrationException e) {
-			// If user registration fails, handle the exception and return an error response
-			return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
-		}
+				userRepository.save(user);
+				System.out.println("User Registeration is successful.. " + user.getUsername());
+				return ResponseEntity
+						.ok(new AuctionResponse(true, "User registered successfully!", HttpStatus.OK.value()));
+			} catch (UserRegistrationException e) {
+//			// If user registration fails, handle the exception and return an error response
+				// Handle unexpected errors
+				String errorMessage = e.getMessage() != null ? e.getMessage()
+						: "An error occurred during user registration";
+				// Return error response
+				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+						.body(new AuctionResponse(false, errorMessage, HttpStatus.INTERNAL_SERVER_ERROR.value()));
+			} catch (Exception e) {
+				String errorMessage = e.getMessage() != null ? e.getMessage() : " ";
+				// Return error response
+				return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+						.body(new AuctionResponse(false, errorMessage, HttpStatus.BAD_REQUEST.value()));
+
+			}
 		}
 
 	}
 
 	@PostMapping("/login")
-	public ResponseEntity<?> login(@RequestBody UserLoginRequest request) {
+	public ResponseEntity<?> login(@Valid @RequestBody UserLoginRequest request) {
 //		
 //		Authentication authentication = authenticationManager
 //				.authenticate(new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
 //		
 //		// Set authenticated user details in SecurityContextHolder
 //		SecurityContextHolder.getContext().setAuthentication(authentication);
+		try {
+			UserDetails userDetails = new CustomUserDetailsService(userRepository)
+					.loadUserByUsername(request.getUsername());
+			String token = jwtTokenUtil.generateToken(userDetails.getUsername());
 
-		UserDetails userDetails = new CustomUserDetailsService(userRepository)
-				.loadUserByUsername(request.getUsername());
-		String token = jwtTokenUtil.generateToken(userDetails.getUsername());
+			System.out.println("User details " + userDetails.getUsername() + " Role " + userDetails.getAuthorities());
+			return ResponseEntity.ok(new JwtTokenAsResponse(token));
+		} catch (Exception e) {
+			String errorMessage = e.getMessage() != null ? e.getMessage() : " ";
+			// Return error response
+			return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+					.body(new AuctionResponse(false, errorMessage, HttpStatus.BAD_REQUEST.value()));
 
-		System.out.println("User details " + userDetails.getUsername() + " Role " + userDetails.getAuthorities());
-		return ResponseEntity.ok(new JwtTokenAsResponse(token));
-		/*
-		 * if (passwordEncoder.matches(request.getPassword(),userDetails.getPassword()))
-		 * { return Jwts.builder().setSubject(userDetails.getUsername()).setIssuedAt(new
-		 * Date()) .signWith(SignatureAlgorithm.HS256, jwtSecret) // Replace with a
-		 * securesecret key .compact(); } else { throw new
-		 * RuntimeException("Invalid login credentials"); }
-		 */
+		}
 	}
 
 	@GetMapping("/allUsers")
@@ -106,8 +124,15 @@ public class UserController {
 	}
 
 	static class UserRegistrationRequest {
+		@NotBlank(message = "Username cannot be blank")
+		@Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
 		private String username;
+
+		@NotBlank(message = "Password cannot be blank")
+		@Size(min = 6, message = "Password must be at least 6 characters")
 		private String password;
+
+		@NotBlank(message = "Role cannot be blank")
 		private String role;
 
 		public String getUsername() {
@@ -137,7 +162,11 @@ public class UserController {
 	}
 
 	static class UserLoginRequest {
+		@NotBlank(message = "Username cannot be blank")
+		@Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
 		private String username;
+		@NotBlank(message = "Password cannot be blank")
+		@Size(min = 6, message = "Password must be at least 6 characters")
 		private String password;
 
 		public String getUsername() {
