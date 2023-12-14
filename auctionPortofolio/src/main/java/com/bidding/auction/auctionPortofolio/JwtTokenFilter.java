@@ -8,6 +8,8 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -21,6 +23,8 @@ import io.jsonwebtoken.Jwts;
 @Component
 public class JwtTokenFilter extends OncePerRequestFilter {
 
+	private static final Logger LOGGER = LoggerFactory.getLogger(JwtTokenFilter.class);
+	
 	@Value("${jwt.secret}")
 	private String jwtSecret;
 
@@ -31,14 +35,11 @@ public class JwtTokenFilter extends OncePerRequestFilter {
 		this.jwtTokenUtil = jwtTokenUtil;
 	}
 
-
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
 
 		String token = extractToken(request);
-		System.out.println("Sigining Key " + jwtSecret);
-		System.out.println("Sigining Key " + jwtTokenUtil);
 		if (token != null && jwtTokenUtil.validateToken(token, jwtTokenUtil.extractUsername(token))) {
 			try {
 				// Validate and parse the token using the JWT library
@@ -61,7 +62,7 @@ public class JwtTokenFilter extends OncePerRequestFilter {
 			} catch (Exception e) {
 				// Handle token validation or parsing errors
 				// You might want to log the error or send a 401 Unauthorized response
-				System.out.println("Invalid token: " + e.getMessage());
+				LOGGER.info("Invalid token: " + e.getMessage());
 			}
 		}
 
