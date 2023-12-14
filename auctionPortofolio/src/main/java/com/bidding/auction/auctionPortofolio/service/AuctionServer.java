@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -14,58 +16,66 @@ import com.bidding.auction.auctionPortofolio.model.Bid;
 
 @Service
 public class AuctionServer {
-
+	private static final Logger LOGGER = LoggerFactory.getLogger(AuctionServer.class);
 	@Autowired
 	private AuctionProductRepository auctionProductRepository;
 
 	@Autowired
 	private BidRepository bidRepository;
 
+	public AuctionServer(AuctionProductRepository auctionProductRepository, BidRepository bidRepository) {
+		this.auctionProductRepository = auctionProductRepository;
+		this.bidRepository = bidRepository;
+	}
+
 	public void registerProduct(String sellerUsername, String productName, int minBid) {
 		AuctionProduct product = new AuctionProduct(UUID.randomUUID().toString(), sellerUsername, productName, minBid);
 		auctionProductRepository.save(product);
-		System.out.println("Product Registered:");
-		System.out.println("ProductId: " + product.getProductId());
-		System.out.println("ProductName: " + productName);
-		System.out.println("MinBid: " + minBid);
+		LOGGER.info("Product Registered:");
+		LOGGER.info("ProductId: " + product.getProductId());
+		LOGGER.info("ProductName: " + productName);
+		LOGGER.info("MinBid: " + minBid);
 	}
 
-	public void placeBid(String buyerUsername, String productId, int bidAmount) {
+	public Bid placeBid(String buyerUsername, String productId, int bidAmount) {
 		validateProductExists(productId);
 
 		Bid bid = new Bid(UUID.randomUUID().toString(), buyerUsername, productId, bidAmount);
-		bidRepository.save(bid);
+		Bid savedObject = bidRepository.save(bid);
 
-		System.out.println("Bid Placed:");
-		System.out.println("BidId: " + bid.getBidId());
-		System.out.println("BuyerUsername: " + buyerUsername);
-		System.out.println("ProductId: " + productId);
-		System.out.println("BidAmount: " + bidAmount);
+		LOGGER.info("Bid Placed:");
+		LOGGER.info("BidId: " + bid.getBidId());
+		LOGGER.info("BuyerUsername: " + buyerUsername);
+		LOGGER.info("ProductId: " + productId);
+		LOGGER.info("BidAmount: " + bidAmount);
+		return savedObject;
 	}
 
-	public void endAuction(String productId) {
+	public AuctionProduct endAuction(String productId) {
 		validateProductExists(productId);
 
 		List<Bid> productBids = bidRepository.findAllByProductIdOrderByBidAmountDesc(productId);
-
+		AuctionProduct product = null;
 		if (!productBids.isEmpty()) {
 			Bid winningBid = productBids.get(0);
 
 			Optional<AuctionProduct> optionalProduct = auctionProductRepository.findById(productId);
 			if (optionalProduct.isPresent()) {
-				AuctionProduct product = optionalProduct.get();
+				product = optionalProduct.get();
 				product.setWinningBidder(winningBid.getBuyerUsername());
 				product.setWinningBidAmount(winningBid.getBidAmount());
 
 				auctionProductRepository.save(product);
 
-				System.out.println("Auction Ended for Product " + productId);
-				System.out.println("Winning Bidder: " + product.getWinningBidder());
-				System.out.println("Winning Bid Amount: " + product.getWinningBidAmount());
+				LOGGER.info("Auction Ended for Product " + productId);
+				LOGGER.info("Winning Bidder: " + product.getWinningBidder());
+				LOGGER.info("Winning Bid Amount: " + product.getWinningBidAmount());
+				return product;
 			}
 		} else {
 			System.out.println("No bids for Product " + productId);
 		}
+		return product;
 	}
 
 	public List<AuctionProduct> getAllProducts() {
