@@ -1,16 +1,19 @@
 package com.bidding.auction.auctionPortofolio.controller;
 
-import java.nio.file.attribute.UserPrincipal;
+import java.net.http.HttpRequest;
 import java.util.List;
+import java.util.Optional;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.validation.Valid;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,10 +22,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.bidding.auction.auctionPortofolio.JwtTokenUtil;
+import com.bidding.auction.auctionPortofolio.dao.AuctionProductRepository;
+import com.bidding.auction.auctionPortofolio.dao.UserRepository;
+import com.bidding.auction.auctionPortofolio.exceptions.ProductRegistrationException;
 import com.bidding.auction.auctionPortofolio.model.AuctionProduct;
 import com.bidding.auction.auctionPortofolio.model.AuctionResponse;
 import com.bidding.auction.auctionPortofolio.model.Bid;
+import com.bidding.auction.auctionPortofolio.model.BidRequest;
+import com.bidding.auction.auctionPortofolio.model.ProductRegistrationRequest;
 import com.bidding.auction.auctionPortofolio.service.AuctionServer;
+import com.bidding.auction.auctionPortofolio.service.CustomUserDetailsService;
 
 import io.jsonwebtoken.Jwts;
 
@@ -40,15 +49,50 @@ public class AuctionController {
 	@Autowired
 	private AuthenticationManager authenticationManager;
 
-	@PostMapping("/registerProduct")
-	public ResponseEntity<?> registerProduct(HttpServletRequest request, @RequestBody ProductRegistrationRequest productRequest) {
-		
+	private final UserRepository userRepository;
+	private final AuctionProductRepository auctionProductRepository;
+
+	public AuctionController(UserRepository userRepository, AuctionProductRepository auctionProductRepository) {
+		this.userRepository = userRepository;
+		this.auctionProductRepository = auctionProductRepository;
+	}
+
+	@PostMapping(value = "/registerProduct", produces = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<?> registerProduct(HttpServletRequest request,
+			@Valid @RequestBody ProductRegistrationRequest productRequest) {
+
 		// Extract the token from the Authorization header
 		// Validate the token
-			// Use the token as needed
-			auctionServer.registerProduct(jwtTokenUtil.extractUsername(extractTokenFromRequest(request)), productRequest.getProductName(),
-					productRequest.getMinBid());
-			 return ResponseEntity.ok(new AuctionResponse(true, "Product registered successfully!", HttpStatus.OK.value()));
+		// Use the token as needed
+		try {
+			UserDetails userDetails = new CustomUserDetailsService(userRepository)
+					.loadUserByUsername(productRequest.getSellerUsername());
+			String tokenUsername = jwtTokenUtil.extractUsername(extractTokenFromRequest(request));
+			if (userDetails.getUsername().equals(tokenUsername)) {
+				auctionServer.registerProduct(jwtTokenUtil.extractUsername(extractTokenFromRequest(request)),
+						productRequest.getProductName(), productRequest.getMinBid());
+				return ResponseEntity
+						.ok(new AuctionResponse(true, "Product registered successfully!", HttpStatus.OK.value()));
+			} else {
+				return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new AuctionResponse(false,
+						"Unauthorized to register Product", HttpStatus.UNAUTHORIZED.value()));
+			}
+		} catch (ProductRegistrationException e) {
+			// If Product registration fails, handle the exception and return an error
+			// response
+			// Handle unexpected errors
+			String errorMessage = e.getMessage() != null ? e.getMessage()
+					: "An error occurred during Product registration to the Auction";
+			// Return error response
+			return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+					.body(new AuctionResponse(false, errorMessage, HttpStatus.BAD_REQUEST.value()));
+		} catch (Exception e) {
+			String errorMessage = e.getMessage() != null ? e.getMessage() : " ";
+			// Return error response
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+					.body(new AuctionResponse(false, errorMessage, HttpStatus.INTERNAL_SERVER_ERROR.value()));
+
+		}
 	}
 
 	private String extractTokenFromRequest(HttpServletRequest request) {
@@ -71,17 +115,33 @@ public class AuctionController {
 	@GetMapping("/products")
 	public List<AuctionProduct> getAllProducts() {
 		return auctionServer.getAllProducts();
+
 	}
 
-	@PostMapping("/placeBid")
-	public void placeBid(@RequestBody BidRequest request) {
-		Bid bid = new Bid();
-		bid.setBidId(request.getBidId());
-		bid.setBuyerUsername(request.getBuyerUsername());
-		bid.setProductId(request.getProductId());
-		bid.setBidAmount(request.getBidAmount());
+	@PostMapping(value = "/placeBid", produces = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<?> placeBid(HttpServletRequest request, @Valid @RequestBody BidRequest bidRequest) {
+		UserDetails userDetails = new CustomUserDetailsService(userRepository)
+				.loadUserByUsername(bidRequest.getBuyerUsername());
+		String tokenUsername = jwtTokenUtil.extractUsername(extractTokenFromRequest(request));
+		try {
+			if (tokenUsername.equals(userDetails.getUsername())) {
+				Bid bid = new Bid();
+				bid.setBuyerUsername(jwtTokenUtil.extractUsername(extractTokenFromRequest(request)));
+				bid.setProductId(bidRequest.getProductId());
+				bid.setBidAmount(bidRequest.getBidAmount());
 
-		auctionServer.placeBid(bid.getBuyerUsername(), bid.getProductId(), bid.getBidAmount());
+				auctionServer.placeBid(bid.getBuyerUsername(), bid.getProductId(), bid.getBidAmount());
+				return ResponseEntity.ok(new AuctionResponse(true,
+						"Auction for Bidding the Product is successful!" + bidRequest.getProductId(),
+						HttpStatus.OK.value()));
+			} else {
+				return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new AuctionResponse(false,
+						"You are not the authorized user to place the Bid. Access Forbidden", HttpStatus.FORBIDDEN.value()));
+			}
+		} catch (Exception e) {
+			return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+					.body(new AuctionResponse(false, e.getMessage(), HttpStatus.UNAUTHORIZED.value()));
+		}
 	}
 
 	@GetMapping("/bids")
@@ -90,89 +150,20 @@ public class AuctionController {
 	}
 
 	@GetMapping("/endAuction/{productId}")
-	public void endAuction(@PathVariable String productId,Authentication authentication) {
-//		Get the authenticated user
-        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-		auctionServer.endAuction(productId);
+	public ResponseEntity<?> endAuction(HttpServletRequest request, @PathVariable String productId) {
+		// Get the authenticated user
+		Optional<AuctionProduct> result = auctionProductRepository.findById(productId);
+		// result.get().getSellerUsername()
+		String tokenUsername = jwtTokenUtil.extractUsername(extractTokenFromRequest(request));
+		if (result.get().getSellerUsername().equals(tokenUsername)) {
+			AuctionProduct bidWinner = auctionServer.endAuction(productId);
+			return ResponseEntity.ok(new AuctionResponse(true, "Bid Winner of Product " + bidWinner.getProductId()
+					+ " is  " + bidWinner.getWinningBidder() + " with Bid Amount of " + bidWinner.getWinningBidAmount(),
+					HttpStatus.OK.value()));
+		} else {
+			return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new AuctionResponse(false,
+					"You are not the Seller to close this Bid. Access Forbidden", HttpStatus.FORBIDDEN.value()));
+		}
 	}
 
-	static class ProductRegistrationRequest {
-		private String productId;
-		private String sellerUsername;
-		private String productName;
-		private int minBid;
-
-		public String getProductId() {
-			return productId;
-		}
-
-		public void setProductId(String productId) {
-			this.productId = productId;
-		}
-
-		public String getSellerUsername() {
-			return sellerUsername;
-		}
-
-		public void setSellerUsername(String sellerUsername) {
-			this.sellerUsername = sellerUsername;
-		}
-
-		public String getProductName() {
-			return productName;
-		}
-
-		public void setProductName(String productName) {
-			this.productName = productName;
-		}
-
-		public int getMinBid() {
-			return minBid;
-		}
-
-		public void setMinBid(int minBid) {
-			this.minBid = minBid;
-		}
-
-	}
-
-	static class BidRequest {
-		private String bidId;
-		private String buyerUsername;
-		private String productId;
-		private int bidAmount;
-
-		public String getBidId() {
-			return bidId;
-		}
-
-		public void setBidId(String bidId) {
-			this.bidId = bidId;
-		}
-
-		public String getBuyerUsername() {
-			return buyerUsername;
-		}
-
-		public void setBuyerUsername(String buyerUsername) {
-			this.buyerUsername = buyerUsername;
-		}
-
-		public String getProductId() {
-			return productId;
-		}
-
-		public void setProductId(String productId) {
-			this.productId = productId;
-		}
-
-		public int getBidAmount() {
-			return bidAmount;
-		}
-
-		public void setBidAmount(int bidAmount) {
-			this.bidAmount = bidAmount;
-		}
-
-	}
 }
